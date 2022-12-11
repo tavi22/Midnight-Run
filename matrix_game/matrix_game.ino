@@ -12,6 +12,8 @@ const byte d7 = 4;
 LiquidCrystal lcd(RS,enable,d4,d5,d6,d7);
 const int maxLcdBrightness;
 const int maxLcdContrast;
+const int displayCols = 16;
+const int displayRows = 2;
 
 // joystick variables
 const int pinSW = 2;  // digital pin connected to switch output
@@ -39,7 +41,7 @@ LedControl lc = LedControl(dinPin, clockPin, loadPin,1);  //DIN, CLK, LOAD, No.
 
 // auxiliary matrix variables
 byte matrixBright = 2;
-const int maxMatrixBrigthness;
+const int maxMatrixBrigthness = 15;
 byte xPos = 0;
 byte yPos = 0;
 byte xLastPos = 0;
@@ -78,9 +80,16 @@ const byte maxDifficulty = 3;
 byte audioState = 1;
 const byte scrollSound = 0;
 const byte clickSound = 1;
+const int scrollDelay = 500;
+unsigned long lastScroll = 0;
 
-const byte menuLengths[menuOptionsCount] = {5, 5, 8, 4, 3};
+const byte menuLengths[menuOptionsCount] = {5, 5, 8, 5, 3};
 String menuItems[maxItemCount];
+
+// auxiliary variables for scrolling
+int scrollCursor = 1;
+int stringStart = 0;
+int stringEnd = displayCols;
 
 // state 0 is when the menu is displayed and state 1 means the game has started
 byte state = 0;
@@ -90,27 +99,8 @@ byte menuCursor = 0;
 byte displayState = 0;
 
 // special LCD displays
-byte heart1[] = {
-  0x00,
-  0x00,
-  0x0A,
-  0x15,
-  0x11,
-  0x0A,
-  0x04,
-  0x00
-};
-
-byte heart2[] = {
-  0x00,
-  0x00,
-  0x0A,
-  0x1F,
-  0x1F,
-  0x0E,
-  0x04,
-  0x00
-};
+byte heart1[] = {0x00, 0x00, 0x0A, 0x15, 0x11, 0x0A, 0x04, 0x00};
+byte heart2[] = {0x00, 0x00, 0x0A, 0x1F, 0x1F, 0x0E, 0x04, 0x00};
 
 struct Player {
   int score;
@@ -124,15 +114,14 @@ Player currentPlayer = {0, "Newbie"};
 void setup() {
   pinMode(pinSW, INPUT_PULLUP);  // activate pull-up resistor on the push-button pin
 
-  // the zero refers to the MAX7219 number, it iszero for 1 chip
-  lc.shutdown(0, false);  // turn off power saving,enables display
-  lc.setIntensity(0, matrixBright);  // sets brightness(0~15 possiblevalues)
-  lc.clearDisplay(0);  // clear screen
+  lc.shutdown(0, false);  // turn off power saving, enables display
+  lc.setIntensity(0, matrixBright); 
+  lc.clearDisplay(0);
   matrix[xPos][yPos] = 1;
   matrix[xFood][yFood] = 1;
   
 // display welcome message for 2 seconds before starting the application + lcd initialize
-  lcd.begin(16, 2);
+  lcd.begin(displayCols, displayRows);
   lcd.createChar(1, heart1);
   lcd.createChar(2, heart2);
 
@@ -172,14 +161,13 @@ void displayMenu() {
     if (j == menuCursor) {
       lcd.setCursor(0, n);
       lcd.print("*");
-      lcd.print(menuItems[j]);
-      n++;
+      displayOption(n, j);
     } else {
       lcd.setCursor(0, n);
       lcd.print(" ");
       lcd.print(menuItems[j]);
-      n++;
     }
+    n++;
   }
 }
 
@@ -340,6 +328,9 @@ void handleJoystickYaxis(byte maxCursor, byte maxState) {
     joyMoved++;
     lcd.clear();
     buzz(audioState, scrollSound);
+    scrollCursor = 1;
+    stringStart = 0;
+    stringEnd = displayCols;
 
   } else if (yValue < lowerThreshold && xValue < highMiddleThreshold && xValue > lowMiddleThreshold && joyMoved == 0) {
     if (menuCursor != maxCursor) {
@@ -355,6 +346,9 @@ void handleJoystickYaxis(byte maxCursor, byte maxState) {
     joyMoved++;
     lcd.clear();
     buzz(audioState, scrollSound);
+    scrollCursor = 1;
+    stringStart = 0;
+    stringEnd = displayCols;
 
   } else if (xValue < highMiddleThreshold && xValue > lowMiddleThreshold && yValue < highMiddleThreshold && yValue > lowMiddleThreshold) {
       joyMoved = 0;
@@ -449,6 +443,7 @@ void switchMenu() {
   displayState = 0;
 }
 
+// load menu options into an array
 void loadMenuItems() {
   switch (currentMenu) {
     case 0:
@@ -471,18 +466,18 @@ void loadMenuItems() {
       menuItems[1] = "Difficulty";
       menuItems[2] = "LCD contrast";
       menuItems[3] = "LCD brightness";
-      menuItems[4] = "Matrix bright.";
+      menuItems[4] = "Matrix brightness";
       menuItems[5] = "Audio";
       menuItems[6] = "Reset";
       menuItems[7] = "< Back";
       break;
     case 3:
     // About
-      menuItems[0] = "Game Name";
-      menuItems[0] = "My Name";
-      menuItems[1] = "@UniBuc Robotics";
-      menuItems[2] = "bit.ly/3iMw7p5";
-      menuItems[3] = "< Back";
+      menuItems[0] = "^^ Game Name ^^";
+      menuItems[1] = "By: Octavian Mitrica";
+      menuItems[2] = "@UniBuc Robotics";
+      menuItems[3] = "GitHub: bit.ly/3iMw7p5";
+      menuItems[4] = "< Back";
       break;
     case 4:
     // How to play
@@ -490,6 +485,43 @@ void loadMenuItems() {
       menuItems[1] = "Eat the food";
       menuItems[2] = "< Back";
       break;
+  }
+}
+
+// if current option is longer than the number of columns, scroll the text
+void displayOption(int line, int index) {
+  String text = menuItems[index];
+  String lastText = menuItems[index-1];
+  int length = text.length();
+
+  if (length < displayCols) {
+    lcd.print(text);
+
+  } else {
+    unsigned long currentTime = millis();
+
+    lcd.setCursor(scrollCursor, line);
+    lcd.print(text.substring(stringStart, stringEnd));
+
+    if(currentTime - lastScroll >= scrollDelay) {
+      lcd.clear();
+
+      if (stringStart == 0 && scrollCursor > 1) {
+        scrollCursor --;
+        stringEnd ++;
+
+      } else if (stringStart == stringEnd) {
+        stringStart = 0;
+        stringEnd = 16;
+        scrollCursor = 1;
+      } else if (stringEnd == length && scrollCursor == 1) {
+        stringStart ++;
+      } else {
+        stringStart ++;
+        stringEnd ++;
+      }
+    lastScroll = millis(); 
+    }
   }
 }
 
