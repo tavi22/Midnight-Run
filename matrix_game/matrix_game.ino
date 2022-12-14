@@ -83,7 +83,7 @@ const byte clickSound = 1;
 const int scrollDelay = 500;
 unsigned long lastScroll = 0;
 
-const byte menuLengths[menuOptionsCount] = {5, 5, 8, 5, 3};
+const byte menuLengths[menuOptionsCount] = {5, 7, 8, 5, 3};
 String menuItems[maxItemCount];
 
 // auxiliary variables for scrolling
@@ -101,6 +101,10 @@ byte displayState = 0;
 // special LCD displays
 byte heart1[] = {0x00, 0x00, 0x0A, 0x15, 0x11, 0x0A, 0x04, 0x00};
 byte heart2[] = {0x00, 0x00, 0x0A, 0x1F, 0x1F, 0x0E, 0x04, 0x00};
+byte upArrow[] = {B00100, B01110, B11111, B00100, B00100, B00100, B00100, B00100};
+byte downArrow[] = {B00100, B00100, B00100, B00100, B00100, B11111, B01110, B00100};
+byte plus[] = {B00000, B00100, B00100, B11111, B00100, B00100, B00000, B00000};
+byte minus[] = {B00000, B00000, B00000, B11111, B00000, B00000, B00000, B00000};
 
 struct Player {
   int score;
@@ -109,6 +113,8 @@ struct Player {
 
 Player currentPlayer = {0, "Newbie"};
 // const int structSize = 8;
+
+const byte buzzerPin = 13;
 
 
 void setup() {
@@ -124,6 +130,10 @@ void setup() {
   lcd.begin(displayCols, displayRows);
   lcd.createChar(1, heart1);
   lcd.createChar(2, heart2);
+  lcd.createChar(3, upArrow);
+  lcd.createChar(4, downArrow);
+  lcd.createChar(5, plus);
+  lcd.createChar(6, minus);
 
   lcd.setCursor(0, 0);
   lcd.print("Interesting Name");
@@ -328,9 +338,7 @@ void handleJoystickYaxis(byte maxCursor, byte maxState) {
     joyMoved++;
     lcd.clear();
     buzz(audioState, scrollSound);
-    scrollCursor = 1;
-    stringStart = 0;
-    stringEnd = displayCols;
+    resetScroll();
 
   } else if (yValue < lowerThreshold && xValue < highMiddleThreshold && xValue > lowMiddleThreshold && joyMoved == 0) {
     if (menuCursor != maxCursor) {
@@ -346,16 +354,14 @@ void handleJoystickYaxis(byte maxCursor, byte maxState) {
     joyMoved++;
     lcd.clear();
     buzz(audioState, scrollSound);
-    scrollCursor = 1;
-    stringStart = 0;
-    stringEnd = displayCols;
+    resetScroll();
 
   } else if (xValue < highMiddleThreshold && xValue > lowMiddleThreshold && yValue < highMiddleThreshold && yValue > lowMiddleThreshold) {
       joyMoved = 0;
     }
 }
 
-// handle joystick press
+// handle joystick press in menus
 void handleJoystickPress() {
   if (lastReading != reading) {
       lastDebounce = millis();
@@ -370,8 +376,8 @@ void handleJoystickPress() {
           if (state == 0) {
             state = 1;
           } else {
-            state = 0;              
             stop();
+            state = 0;              
           }
         } else {
           switchMenu();
@@ -420,6 +426,7 @@ void switchMenu() {
         audio();
       } else if (menuCursor == 5) {
         resetLeaderboard();
+        currentMenu = 0;
       }
       break;
     // About
@@ -458,7 +465,7 @@ void loadMenuItems() {
     // Leaderboard
       menuItems[0] = "> Leaderboard <";
       loadLeaderboard();
-      menuItems[4] = "< Back";
+      menuItems[6] = "< Back";
       break;
     case 2:
     // Settings
@@ -468,7 +475,7 @@ void loadMenuItems() {
       menuItems[3] = "LCD brightness";
       menuItems[4] = "Matrix brightness";
       menuItems[5] = "Audio";
-      menuItems[6] = "Reset";
+      menuItems[6] = "Reset leaderboard";
       menuItems[7] = "< Back";
       break;
     case 3:
@@ -511,9 +518,7 @@ void displayOption(int line, int index) {
         stringEnd ++;
 
       } else if (stringStart == stringEnd) {
-        stringStart = 0;
-        stringEnd = 16;
-        scrollCursor = 1;
+        resetScroll();
       } else if (stringEnd == length && scrollCursor == 1) {
         stringStart ++;
       } else {
@@ -532,6 +537,9 @@ void loadLeaderboard() {
   menuItems[1] = "#1 ";  
   menuItems[2] = "#2 ";
   menuItems[3] = "#3 ";
+  menuItems[4] = "#4 ";
+  menuItems[5] = "#5 ";
+
 }
 
 // reset all leaderboard scores
@@ -560,23 +568,65 @@ void matrixBrightness() {
 }
 
 void audio() {
-  // TO DO
+  lcd.clear();
+  lcd.setCursor(0, 0);
+
+  if (audioState) {
+    lcd.print("<   < ON >   >");
+  } else {
+    lcd.print("<   < OFF >   >");
+  }
+
+  lcd.setCursor(0, 1);
+  lcd.print("Press to save");
+  // while(true) {
+    
+  // }
+
+  
 }
 
 // buzzer sounds for menu switching and scrolling up and down
 // option = 0 -> scroll || option = 1 -> click
 void buzz(byte audioState, byte option) {
+  const int buzzerTime = 200;
+  const int scrollTone = 500;
+  const int clickTone = 1000;
+
   if (audioState) {
-    // to do - buzz
+    if (option) {
+      tone(buzzerPin, scrollTone, buzzerTime);
+    } else {
+      tone(buzzerPin, clickTone, buzzerTime);
+    }
   }
-
-  if (option) {
-    // click
-  } else {
-    // scroll
-  }
-
 }
+
+void resetScroll() {
+  scrollCursor = 1;
+    stringStart = 0;
+    stringEnd = displayCols;
+}
+
+bool buttonPressed() {
+  bool flag = false;
+  if (lastReading != reading) {
+      lastDebounce = millis();
+  }
+
+  if ((millis() - lastDebounce) >= debounceDelay) {
+    if (swState != reading) {
+      swState = reading;
+
+      if (!swState) {
+        flag = true;
+      }
+    }
+  }
+  lastReading = reading;
+  return flag;
+}
+
 
 
 
