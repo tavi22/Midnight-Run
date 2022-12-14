@@ -69,6 +69,15 @@ byte matrix[matrixSize][matrixSize] = {
   {0,0,0,0,0,0,0,0}
 };
 
+// matrix art
+const int matrixArtDelay = 15;
+const byte mainMenuArt[matrixSize] = {B00011000, B00111100, B01100110, B11110110, B11111110, B11111110, B01100110, B01100110};
+const byte leaderboardArt[matrixSize] = {B00011000, B00011000, B10011001, B10011001, B10011001, B11111111, B11111111, B11111111};
+const byte settingsArt[matrixSize] = {B00011000, B00011100, B10011110, B11111111, B11111111, B10011110, B00011100, B00011000};
+const byte aboutArt[matrixSize] = {B10011001, B01011010, B00111100, B11111111, B11111111, B00111100, B01011010, B10011001};
+const byte howToArt[matrixSize] = {B11111111, B01111110, B00111100, B00011000, B00011000, B00111100, B01111110, B11111111};
+const byte resetMatrix[matrixSize] = {B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000};
+
 // auxiliary menu variables
 const byte menuLength = 5;
 const byte submenuLength = 7;
@@ -125,6 +134,7 @@ void setup() {
   lc.clearDisplay(0);
   matrix[xPos][yPos] = 1;
   matrix[xFood][yFood] = 1;
+  matrixMenuSymbols();
   
 // display welcome message for 2 seconds before starting the application + lcd initialize
   lcd.begin(displayCols, displayRows);
@@ -145,14 +155,10 @@ void setup() {
   loadMenuItems();
   // Player plr = {0, "Unknown"};
   // EEPROM.put(0, plr);
-  // Serial.begin(9600);
+  Serial.begin(9600);
 }
 
 void loop() {
-  xValue = analogRead(pinX);
-  yValue = analogRead(pinY);
-  reading = digitalRead(pinSW);
-  
   if (state == 0) {
     displayMenu();
   } else {
@@ -322,7 +328,9 @@ void stop() {
 
 // handle joystick movement for menu
 void handleJoystickYaxis(byte maxCursor, byte maxState) {
-
+  xValue = analogRead(pinX);
+  yValue = analogRead(pinY);
+  reading = digitalRead(pinSW);
   // menu items logic is to always see the next available option on the display
   if (yValue > upperThreshold && xValue < highMiddleThreshold && xValue > lowMiddleThreshold && joyMoved == 0) {
     if (menuCursor != 0) {
@@ -339,6 +347,9 @@ void handleJoystickYaxis(byte maxCursor, byte maxState) {
     lcd.clear();
     buzz(audioState, scrollSound);
     resetScroll();
+    if (currentMenu == 0) {
+      matrixMenuSymbols();
+    }
 
   } else if (yValue < lowerThreshold && xValue < highMiddleThreshold && xValue > lowMiddleThreshold && joyMoved == 0) {
     if (menuCursor != maxCursor) {
@@ -355,38 +366,30 @@ void handleJoystickYaxis(byte maxCursor, byte maxState) {
     lcd.clear();
     buzz(audioState, scrollSound);
     resetScroll();
+    if (currentMenu == 0) {
+      matrixMenuSymbols();
+    }
+
 
   } else if (xValue < highMiddleThreshold && xValue > lowMiddleThreshold && yValue < highMiddleThreshold && yValue > lowMiddleThreshold) {
       joyMoved = 0;
-    }
+  }
 }
 
 // handle joystick press in menus
 void handleJoystickPress() {
-  if (lastReading != reading) {
-      lastDebounce = millis();
-  }
-
-  if ((millis() - lastDebounce) >= debounceDelay) {
-    if (swState != reading) {
-      swState = reading;
-
-      if (!swState) {
-        if (menuCursor == 0 && currentMenu == 0) {
-          if (state == 0) {
-            state = 1;
-          } else {
-            stop();
-            state = 0;              
-          }
-        } else {
-          switchMenu();
-        }
+  if (buttonPressed()) {
+    if (menuCursor == 0 && currentMenu == 0) {
+      if (state == 0) {
+        state = 1;
+      } else {
+        stop();
+        state = 0;              
       }
+    } else {
+      switchMenu();
     }
   }
-
-  lastReading = reading;
 }
 
 // switch the menu according to the cursor (selected menu option)
@@ -394,6 +397,7 @@ void handleJoystickPress() {
 void switchMenu() {
   lcd.clear();
   buzz(audioState, clickSound);
+  matrixMenuSymbols();
 
   switch (currentMenu) {
     // Main Menu
@@ -405,6 +409,7 @@ void switchMenu() {
       // back option
       if (menuCursor == menuLengths[1] - 1) {
         currentMenu = 0;
+        matrixMenuSymbols();
       }
       break;
     // Settings
@@ -412,6 +417,7 @@ void switchMenu() {
       // back option
       if (menuCursor == menuLengths[2] - 1) {
         currentMenu = 0;
+        matrixMenuSymbols();
       } else if (menuCursor == 0) {
         changeName();
       } else if (menuCursor == 1) {
@@ -422,11 +428,12 @@ void switchMenu() {
         lcdBrightness();
       } else if (menuCursor == 4) {
         matrixBrightness();
-      } else if (menuCursor == 4) {
-        audio();
       } else if (menuCursor == 5) {
+        audio();
+      } else if (menuCursor == 6) {
         resetLeaderboard();
         currentMenu = 0;
+        matrixMenuSymbols();
       }
       break;
     // About
@@ -434,6 +441,7 @@ void switchMenu() {
       // back option
       if (menuCursor == menuLengths[3] - 1) {
           currentMenu = 0;
+          matrixMenuSymbols();
       }
       break;
     // How to play
@@ -441,6 +449,8 @@ void switchMenu() {
       // back option
       if (menuCursor == menuLengths[4] - 1) {
           currentMenu = 0;
+          matrixMenuSymbols();
+
       }
       break;
   }
@@ -475,7 +485,7 @@ void loadMenuItems() {
       menuItems[3] = "LCD brightness";
       menuItems[4] = "Matrix brightness";
       menuItems[5] = "Audio";
-      menuItems[6] = "Reset leaderboard";
+      menuItems[6] = "Reset";
       menuItems[7] = "< Back";
       break;
     case 3:
@@ -569,21 +579,29 @@ void matrixBrightness() {
 
 void audio() {
   lcd.clear();
-  lcd.setCursor(0, 0);
+  Serial.println("IN");
 
-  if (audioState) {
-    lcd.print("<   < ON >   >");
-  } else {
-    lcd.print("<   < OFF >   >");
+  while (!buttonPressed()) {
+    byte operation = handleJoystickXaxis();
+    Serial.println(operation);
+    lcd.setCursor(0, 0);
+    if (audioState) {
+      lcd.print("<   < ON >   >");
+    } else {
+      lcd.print("<   < OFF >   >");
+    }
+    lcd.setCursor(0, 1);
+    lcd.print("Press to save");
+    if (operation == 2) {
+      audioState = 1;
+    } else if (operation == 1) {
+      audioState = 0;
+    }
   }
-
-  lcd.setCursor(0, 1);
-  lcd.print("Press to save");
-  // while(true) {
-    
-  // }
-
   
+  lcd.clear();
+  currentMenu = 2;
+  saveToEEPROM();
 }
 
 // buzzer sounds for menu switching and scrolling up and down
@@ -608,8 +626,24 @@ void resetScroll() {
     stringEnd = displayCols;
 }
 
+byte handleJoystickXaxis() {
+  byte flag = 0;
+  xValue = analogRead(pinX);
+  yValue = analogRead(pinY);
+  reading = digitalRead(pinSW);
+  if (xValue > upperThreshold && yValue < highMiddleThreshold && yValue > lowMiddleThreshold && joyMoved == 0) {
+    joyMoved++;
+    flag = 2;
+  } else if (xValue < lowerThreshold && yValue < highMiddleThreshold && yValue > lowMiddleThreshold && joyMoved == 0) {
+    joyMoved++;
+    flag = 1;
+  } else if (xValue < highMiddleThreshold && xValue > lowMiddleThreshold && yValue < highMiddleThreshold && yValue > lowMiddleThreshold) {
+      joyMoved = 0;
+    }
+  return flag;
+}
+
 bool buttonPressed() {
-  bool flag = false;
   if (lastReading != reading) {
       lastDebounce = millis();
   }
@@ -619,13 +653,52 @@ bool buttonPressed() {
       swState = reading;
 
       if (!swState) {
-        flag = true;
+        return true;
       }
     }
   }
   lastReading = reading;
-  return flag;
+  return false;
 }
+
+void matrixMenuSymbols() {
+  // if (currentMenu == 0) {}
+  switch (menuCursor) {
+    // Main Menu
+    case 0:
+      displayMatrixArt(mainMenuArt);
+      break;
+    // Leaderboard
+    case 1:
+      displayMatrixArt(leaderboardArt);
+    // Settings
+      break;
+    case 2:
+      displayMatrixArt(settingsArt);
+      break;
+    // About
+    case 3:
+      displayMatrixArt(aboutArt);
+      break;
+    // How to play
+    case 4:
+      displayMatrixArt(howToArt);
+      break;
+  }
+
+}
+
+void displayMatrixArt(byte chars[]) {
+  for(int i = 0; i < matrixSize; i++) {
+    lc.setRow(0, i, chars[i]);
+    delay(5);
+  }
+}
+
+void saveToEEPROM() {
+  // TO DO
+}
+
 
 
 
