@@ -10,8 +10,6 @@ const byte d5 = 6;
 const byte d6 = 5;
 const byte d7 = 4;
 LiquidCrystal lcd(RS,enable,d4,d5,d6,d7);
-const int maxLcdBrightness;
-const int maxLcdContrast;
 const int displayCols = 16;
 const int displayRows = 2;
 
@@ -32,16 +30,19 @@ unsigned long int lastDebounce = 0;
 byte lastReading = LOW;
 byte reading = LOW;
 
+// buzzer variables
+const byte buzzerPin = 13;
+const byte scrollSound = 0;
+const byte clickSound = 1;
+
 // matrix variables
 const byte dinPin = 12;
 const byte clockPin = 11;
 const byte loadPin = 10;
 const byte matrixSize = 8;
-LedControl lc = LedControl(dinPin, clockPin, loadPin,1);  //DIN, CLK, LOAD, No.
+LedControl lc = LedControl(dinPin, clockPin, loadPin, 1);  //DIN, CLK, LOAD, No.
 
 // auxiliary matrix variables
-byte matrixBright = 2;
-const int maxMatrixBrigthness = 15;
 byte xPos = 0;
 byte yPos = 0;
 byte xLastPos = 0;
@@ -78,6 +79,7 @@ const byte aboutArt[matrixSize] = {B10011001, B01011010, B00111100, B11111111, B
 const byte howToArt[matrixSize] = {B11111111, B01111110, B00111100, B00011000, B00011000, B00111100, B01111110, B11111111};
 const byte resetMatrix[matrixSize] = {B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000};
 
+
 // auxiliary menu variables
 const byte menuLength = 5;
 const byte submenuLength = 7;
@@ -85,10 +87,6 @@ const long delayPeriod = 2000;
 byte currentMenu = 0;
 const byte maxItemCount = 8;
 const byte menuOptionsCount = 5;
-const byte maxDifficulty = 3;
-byte audioState = 1;
-const byte scrollSound = 0;
-const byte clickSound = 1;
 const int scrollDelay = 500;
 unsigned long lastScroll = 0;
 
@@ -108,29 +106,51 @@ byte menuCursor = 0;
 byte displayState = 0;
 
 // special LCD displays
-byte heart1[] = {0x00, 0x00, 0x0A, 0x15, 0x11, 0x0A, 0x04, 0x00};
-byte heart2[] = {0x00, 0x00, 0x0A, 0x1F, 0x1F, 0x0E, 0x04, 0x00};
-byte upArrow[] = {B00100, B01110, B11111, B00100, B00100, B00100, B00100, B00100};
-byte downArrow[] = {B00100, B00100, B00100, B00100, B00100, B11111, B01110, B00100};
-byte plus[] = {B00000, B00100, B00100, B11111, B00100, B00100, B00000, B00000};
-byte minus[] = {B00000, B00000, B00000, B11111, B00000, B00000, B00000, B00000};
+const byte heart1[] = {0x00, 0x00, 0x0A, 0x15, 0x11, 0x0A, 0x04, 0x00};
+const byte heart2[] = {0x00, 0x00, 0x0A, 0x1F, 0x1F, 0x0E, 0x04, 0x00};
+const byte upArrow[] = {B00100, B01110, B11111, B00100, B00100, B00100, B00100, B00100};
+const byte downArrow[] = {B00100, B00100, B00100, B00100, B00100, B11111, B01110, B00100};
+const byte plus[] = {B00000, B00100, B00100, B11111, B00100, B00100, B00000, B00000};
+const byte minus[] = {B00000, B00000, B00000, B11111, B00000, B00000, B00000, B00000};
+const byte block[] = {B00000, B01110, B01110, B01110, B01110,  B01110,  B01110, B00000};
+const byte emptyBlock[] = {B00000, B11111, B10001, B10001, B10001, B10001, B10001, B11111};
+
+// EEPROM variables
+// values to save to eeprom later
+const byte maxNameLen = 10;
 
 struct Player {
   int score;
-  String name;
+  char name[maxNameLen];
 };
+
+struct Settings {
+  int matrixBright;
+  int difficulty;
+  int lcdBright;
+  int lcdContrast;
+  byte audioState;
+  char playerName[maxNameLen];
+};
+
+const int maxDifficulty = 3;
+const int maxMatrixBrigthness = 15;
+const int maxLcdBrightness = 15;
+const int maxBlocks = 14;
+const int maxLcdContrast = 15;
+
+Settings defaultSettings = {2, 1, 1, 1, 1, "Newbie"};
 
 Player currentPlayer = {0, "Newbie"};
 // const int structSize = 8;
 
-const byte buzzerPin = 13;
 
 
 void setup() {
   pinMode(pinSW, INPUT_PULLUP);  // activate pull-up resistor on the push-button pin
 
   lc.shutdown(0, false);  // turn off power saving, enables display
-  lc.setIntensity(0, matrixBright); 
+  lc.setIntensity(0, defaultSettings.matrixBright); 
   lc.clearDisplay(0);
   matrix[xPos][yPos] = 1;
   matrix[xFood][yFood] = 1;
@@ -144,6 +164,8 @@ void setup() {
   lcd.createChar(4, downArrow);
   lcd.createChar(5, plus);
   lcd.createChar(6, minus);
+  lcd.createChar(7, block);
+  lcd.createChar(8, emptyBlock);
 
   lcd.setCursor(0, 0);
   lcd.print("Interesting Name");
@@ -159,6 +181,7 @@ void setup() {
 }
 
 void loop() {
+  
   if (state == 0) {
     displayMenu();
   } else {
@@ -183,7 +206,7 @@ void displayMenu() {
       lcd.print(" ");
       lcd.print(menuItems[j]);
     }
-    n++;
+    n++; 
   }
 }
 
@@ -204,12 +227,17 @@ void displayGameUI() {
       lcd.write(1);
     }
   }
-  // quit the game by pressing the joystick (testing purposes)
-  handleJoystickPress();
+
+  if (buttonPressed()) {
+    Serial.println("GION");
+    stop();
+  }
+
 }
 
 // game process
 void play() {
+
 
   // food led blinking
   if (millis() - previousMillis >= interval) {
@@ -310,6 +338,7 @@ void updatePositions() {
 
 // called when a game ends
 void stop() {
+  state = 0;
   lcd.clear();
   Player plr;
   EEPROM.get(0, plr);
@@ -345,7 +374,7 @@ void handleJoystickYaxis(byte maxCursor, byte maxState) {
     }
     joyMoved++;
     lcd.clear();
-    buzz(audioState, scrollSound);
+    buzz(defaultSettings.audioState, scrollSound);
     resetScroll();
     if (currentMenu == 0) {
       matrixMenuSymbols();
@@ -364,7 +393,7 @@ void handleJoystickYaxis(byte maxCursor, byte maxState) {
     }
     joyMoved++;
     lcd.clear();
-    buzz(audioState, scrollSound);
+    buzz(defaultSettings.audioState, scrollSound);
     resetScroll();
     if (currentMenu == 0) {
       matrixMenuSymbols();
@@ -379,13 +408,8 @@ void handleJoystickYaxis(byte maxCursor, byte maxState) {
 // handle joystick press in menus
 void handleJoystickPress() {
   if (buttonPressed()) {
-    if (menuCursor == 0 && currentMenu == 0) {
-      if (state == 0) {
-        state = 1;
-      } else {
-        stop();
-        state = 0;              
-      }
+    if (menuCursor == 0 && currentMenu == 0 && state == 0) {
+      state = 1;
     } else {
       switchMenu();
     }
@@ -396,8 +420,7 @@ void handleJoystickPress() {
 // TO DO: FINISH FUNCTION
 void switchMenu() {
   lcd.clear();
-  buzz(audioState, clickSound);
-  matrixMenuSymbols();
+  buzz(defaultSettings.audioState, clickSound);
 
   switch (currentMenu) {
     // Main Menu
@@ -408,56 +431,55 @@ void switchMenu() {
     case 1:
       // back option
       if (menuCursor == menuLengths[1] - 1) {
-        currentMenu = 0;
-        matrixMenuSymbols();
+        goBack();
+        return;
       }
       break;
     // Settings
     case 2:
       // back option
       if (menuCursor == menuLengths[2] - 1) {
-        currentMenu = 0;
-        matrixMenuSymbols();
+        goBack();
+        return;
       } else if (menuCursor == 0) {
         changeName();
       } else if (menuCursor == 1) {
-        difficulty();
+        progressBar(defaultSettings.difficulty, maxDifficulty);
       } else if (menuCursor == 2) {
-        lcdContrast();
+        progressBar(defaultSettings.lcdContrast, maxBlocks);
       } else if (menuCursor == 3) {
-        lcdBrightness();
+        progressBar(defaultSettings.lcdBright, maxBlocks);
       } else if (menuCursor == 4) {
-        matrixBrightness();
+        progressBar(defaultSettings.matrixBright, maxBlocks);
       } else if (menuCursor == 5) {
         audio();
       } else if (menuCursor == 6) {
-        resetLeaderboard();
-        currentMenu = 0;
-        matrixMenuSymbols();
+        reset();
+        goBack();
+        return;
       }
       break;
     // About
     case 3:
       // back option
       if (menuCursor == menuLengths[3] - 1) {
-          currentMenu = 0;
-          matrixMenuSymbols();
+        goBack();
+        return;  
       }
       break;
     // How to play
     case 4:
       // back option
       if (menuCursor == menuLengths[4] - 1) {
-          currentMenu = 0;
-          matrixMenuSymbols();
-
+          goBack();
+          return;
       }
       break;
   }
 
-  loadMenuItems();
   menuCursor = 0;
   displayState = 0;
+  loadMenuItems();
 }
 
 // load menu options into an array
@@ -540,6 +562,50 @@ void displayOption(int line, int index) {
   }
 }
 
+// displays a progress bar to adjust variable values
+void progressBar(int lastValue, int maxBlocks) {
+  lcd.clear();
+  while (!buttonPressed()) {
+    byte operation = handleJoystickXaxis();
+
+    lcd.setCursor(0, 0);
+    lcd.write(6);
+    lcd.setCursor(displayCols - 1, 0);
+    lcd.write(5);
+
+    lcd.setCursor(0, 1);
+    lcd.print("Press to save");
+
+    for (int i = 0; i < maxBlocks; i++) {
+      lcd.setCursor(i+1, 0);
+      if (i < lastValue) {
+        lcd.write(7);
+      } else {
+        lcd.write(8); 
+      }
+    }  
+
+    if (operation == 2) {
+      if (lastValue < maxBlocks) {
+        lcd.setCursor(lastValue + 1, 0);
+        lcd.write(7);
+        lastValue++;  
+      }
+    } else if (operation == 1) {
+      if (lastValue > 1) {
+        lcd.setCursor(lastValue, 0);
+        lcd.write(8);
+        lastValue--;
+      }
+    }
+  }
+
+  lcd.clear();
+  // to do -> call appropriate function with lastValue as param
+  // matrixBrightness(lastValue);
+  currentMenu = 2;
+}
+
 // load highscores from eeprom
 void loadLeaderboard() {
   Player plr;
@@ -553,7 +619,7 @@ void loadLeaderboard() {
 }
 
 // reset all leaderboard scores
-void resetLeaderboard() {
+void reset() {
   // TO DO
 }
 
@@ -561,20 +627,20 @@ void changeName() {
   // TO DO
 }
 
-void difficulty() {
+void difficulty(int blockValues) {
   // TO DO
 }
 
-void lcdContrast() {
+void lcdContrast(int blockValue) {
   // TO DO
 }
 
-void lcdBrightness() {
+void lcdBrightness(int blockValue) {
   // TO DO
 }
 
-void matrixBrightness() {
-  // TO DO
+void matrixBrightness(int blockValue) {
+  
 }
 
 void audio() {
@@ -585,7 +651,7 @@ void audio() {
     byte operation = handleJoystickXaxis();
     Serial.println(operation);
     lcd.setCursor(0, 0);
-    if (audioState) {
+    if (defaultSettings.audioState) {
       lcd.print("<   < ON >   >");
     } else {
       lcd.print("<   < OFF >   >");
@@ -593,9 +659,9 @@ void audio() {
     lcd.setCursor(0, 1);
     lcd.print("Press to save");
     if (operation == 2) {
-      audioState = 1;
+      defaultSettings.audioState = 1;
     } else if (operation == 1) {
-      audioState = 0;
+      defaultSettings.audioState = 0;
     }
   }
   
@@ -644,6 +710,7 @@ byte handleJoystickXaxis() {
 }
 
 bool buttonPressed() {
+  bool flag = false;
   if (lastReading != reading) {
       lastDebounce = millis();
   }
@@ -653,12 +720,12 @@ bool buttonPressed() {
       swState = reading;
 
       if (!swState) {
-        return true;
+        flag = true;
       }
     }
   }
   lastReading = reading;
-  return false;
+  return flag;
 }
 
 void matrixMenuSymbols() {
@@ -693,6 +760,14 @@ void displayMatrixArt(byte chars[]) {
     lc.setRow(0, i, chars[i]);
     delay(5);
   }
+}
+
+void goBack() {
+  currentMenu = 0;
+  displayState = 0;
+  menuCursor = 0;
+  matrixMenuSymbols();
+  loadMenuItems();
 }
 
 void saveToEEPROM() {
