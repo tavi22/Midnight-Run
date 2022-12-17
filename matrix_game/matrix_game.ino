@@ -6,10 +6,10 @@
 const byte RS = 9;
 const byte enable = 8;
 const byte d4 = 7;
-const byte d5 = 6;
+const byte d5 = 3;
 const byte d6 = 5;
 const byte d7 = 4;
-const byte v0 = 3;
+const byte backlightPin = 6;
 LiquidCrystal lcd(RS,enable,d4,d5,d6,d7);
 const int displayCols = 16;
 const int displayRows = 2;
@@ -80,18 +80,15 @@ const byte aboutArt[matrixSize] = {B10011001, B01011010, B00111100, B11111111, B
 const byte howToArt[matrixSize] = {B11111111, B01111110, B00111100, B00011000, B00011000, B00111100, B01111110, B11111111};
 const byte resetMatrix[matrixSize] = {B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000};
 
-
 // auxiliary menu variables
-const byte menuLength = 5;
-const byte submenuLength = 7;
 const long delayPeriod = 2000;
 byte currentMenu = 0;
-const byte maxItemCount = 8;
+const byte maxItemCount = 7;
 const byte menuOptionsCount = 5;
 const int scrollDelay = 500;
 unsigned long lastScroll = 0;
 
-const byte menuLengths[menuOptionsCount] = {5, 7, 8, 5, 3};
+const byte menuLengths[menuOptionsCount] = {5, 7, 7, 5, 3};
 String menuItems[maxItemCount];
 
 // auxiliary variables for scrolling
@@ -115,6 +112,8 @@ const byte plus[] = {B00000, B00100, B00100, B11111, B00100, B00100, B00000, B00
 const byte minus[] = {B00000, B00000, B00000, B11111, B00000, B00000, B00000, B00000};
 const byte block[] = {B00000, B01110, B01110, B01110, B01110,  B01110,  B01110, B00000};
 const byte emptyBlock[] = {B00000, B11111, B10001, B10001, B10001, B10001, B10001, B11111};
+const byte playerIcon[] = {B01110,B01110, B00100, B11111, B00100, B00100, B01010, B01010};
+const byte nameEnd[] = {B00001, B00111, B01111, B11111, B11111, B01111, B00111, B00001};
 
 // EEPROM variables
 // values to save to eeprom later
@@ -128,29 +127,31 @@ struct Player {
 struct Settings {
   char playerName[maxNameLen];
   int difficulty;
-  int lcdContrast;
   int lcdBrightness;
   int matrixBrightness;
   byte audioState;
 };
 
 const int maxDifficulty = 3;
-const int maxLcdBrightness = 15;
+const int maxLcdBrightness = 255;
+const int minLcdBrightness = 55;
 const int maxBlocks = 14;
-const int maxLcdContrast = 160;
-const int minLcdContrast = 40;
+const int maxLeaderboardEntries = 5;
 
-const Settings defaultSettings = {"Unknown", 1, 8, 1, 2, 1};
-Settings currentSettings = defaultSettings;
+const Settings defaultSettings = {"Unknown", 1, 5, 2, 1};
+Settings currentSettings;
 
 const Player defaultPlayer = {0, "Unknown"};
 Player currentPlayer = defaultPlayer;
+Player leaderboard[maxLeaderboardEntries];
 
 
 
 void setup() {
   pinMode(pinSW, INPUT_PULLUP);  // activate pull-up resistor on the push-button pin
-  pinMode(v0, OUTPUT);
+  pinMode(backlightPin, OUTPUT);
+
+  loadFromEEPROM();
 
   lc.shutdown(0, false);  // turn off power saving, enables display
   updateSettings(); 
@@ -161,14 +162,7 @@ void setup() {
   
 // display welcome message for 2 seconds before starting the application + lcd initialize
   lcd.begin(displayCols, displayRows);
-  lcd.createChar(1, heart1);
-  lcd.createChar(2, heart2);
-  lcd.createChar(3, upArrow);
-  lcd.createChar(4, downArrow);
-  lcd.createChar(5, plus);
-  lcd.createChar(6, minus);
-  lcd.createChar(7, block);
-  lcd.createChar(8, emptyBlock);
+  lcdCustomChars();
 
   displayWelcome();
   loadMenuItems();
@@ -224,16 +218,11 @@ void displayGameUI() {
     }
   }
 
-  // if (buttonPressed()) {
-  //   Serial.println("TEST");
-  //   stop();
-  // }
-
+  handleJoystickPress();
 }
 
 // game process
 void play() {
-
 
   // food led blinking
   if (millis() - previousMillis >= interval) {
@@ -336,19 +325,18 @@ void updatePositions() {
 void stop() {
   state = 0;
   lcd.clear();
-  Player plr;
-  EEPROM.get(0, plr);
-
-  if (currentPlayer.score > plr.score) {
-    EEPROM.put(0, currentPlayer);
-    lcd.clear();
-    lcd.setCursor(2, 0);
-    lcd.print("!HIGHSCORE!");
-    lcd.setCursor(0, 1);
-    lcd.print("Leaderboard # 1");
-    delay(delayPeriod);
-    lcd.clear();
+  for (int i = 0; i < maxLeaderboardEntries; i++) {
+    if (currentPlayer.score > leaderboard[i].score) {
+      lcd.setCursor(5, 0);
+      lcd.print("HIGHSCORE!!!");
+      lcd.setCursor(0, 1);
+      lcd.print("You are # " + String(i));
+      delay(1000);
+      break;
+    }
   }
+  currentPlayer.score = 0;
+  goBack();
 }
 
 // handle joystick movement for menu
@@ -404,16 +392,19 @@ void handleJoystickYaxis(byte maxCursor, byte maxState) {
 // handle joystick press in menus
 void handleJoystickPress() {
   if (buttonPressed()) {
-    if (menuCursor == 0 && currentMenu == 0 && state == 0) {
-      state = 1;
-    } else {
+    if (state == 0) {
+      if (currentMenu == 0 && menuCursor == 0) {
+        state = 1;
+      } else {
       switchMenu();
-    }
+      }
+    } else {
+      stop();
+    } 
   }
 }
 
 // switch the menu according to the cursor (selected menu option)
-// TO DO: FINISH FUNCTION
 void switchMenu() {
   lcd.clear();
   buzz(currentSettings.audioState, clickSound);
@@ -442,14 +433,12 @@ void switchMenu() {
       } else if (menuCursor == 1) {
         progressBar(currentSettings.difficulty, maxDifficulty, 1);
       } else if (menuCursor == 2) {
-        progressBar(currentSettings.lcdContrast, maxBlocks, 2);
+        progressBar(currentSettings.lcdBrightness, maxBlocks, 2);
       } else if (menuCursor == 3) {
-        progressBar(currentSettings.lcdBrightness, maxBlocks, 3);
+        progressBar(currentSettings.matrixBrightness, maxBlocks, 3);
       } else if (menuCursor == 4) {
-        progressBar(currentSettings.matrixBrightness, maxBlocks, 4);
-      } else if (menuCursor == 5) {
         audio();
-      } else if (menuCursor == 6) {
+      } else if (menuCursor == 5) {
         reset();
         return;
       }
@@ -474,7 +463,8 @@ void switchMenu() {
 
   menuCursor = 0;
   displayState = 0;
-  saveToEEPROM();
+  // save all the changes we've made
+  saveToEEPROM("settings");
   loadMenuItems();
 }
 
@@ -499,12 +489,11 @@ void loadMenuItems() {
     // Settings
       menuItems[0] = "Change name";
       menuItems[1] = "Difficulty";
-      menuItems[2] = "LCD contrast";
-      menuItems[3] = "LCD brightness";
-      menuItems[4] = "Matrix brightness";
-      menuItems[5] = "Audio";
-      menuItems[6] = "Reset";
-      menuItems[7] = "< Back";
+      menuItems[2] = "LCD brightness";
+      menuItems[3] = "Matrix brightness";
+      menuItems[4] = "Audio";
+      menuItems[5] = "Reset";
+      menuItems[6] = "< Back";
       break;
     case 3:
     // About
@@ -521,6 +510,15 @@ void loadMenuItems() {
       menuItems[2] = "< Back";
       break;
   }
+}
+
+// load highscores
+void loadLeaderboard() {
+  menuItems[1] = "#1 " + String(leaderboard[0].name) + ": " + String(leaderboard[0].score);  
+  menuItems[2] = "#2 " + String(leaderboard[1].name) + ": " + String(leaderboard[1].score);
+  menuItems[3] = "#3 " + String(leaderboard[2].name) + ": " + String(leaderboard[2].score);
+  menuItems[4] = "#4 " + String(leaderboard[3].name) + ": " + String(leaderboard[3].score);
+  menuItems[5] = "#5 " + String(leaderboard[4].name) + ": " + String(leaderboard[4].score);
 }
 
 // if current option is longer than the number of columns, scroll the text
@@ -601,12 +599,9 @@ void progressBar(int lastValue, int maxBlocks, byte menuOption) {
         currentSettings.difficulty = lastValue;
         break;
       case 2:
-        currentSettings.lcdContrast = lastValue;
-        break;
-      case 3:
         currentSettings.lcdBrightness = lastValue;
         break;
-      case 4:
+      case 3:
         currentSettings.matrixBrightness = lastValue;
         break;
     }
@@ -616,28 +611,53 @@ void progressBar(int lastValue, int maxBlocks, byte menuOption) {
   currentMenu = 2;
 }
 
-// load highscores from eeprom
-void loadLeaderboard() {
-  Player plr;
-  EEPROM.get(0, plr);
-  menuItems[1] = "#1 ";  
-  menuItems[2] = "#2 ";
-  menuItems[3] = "#3 ";
-  menuItems[4] = "#4 ";
-  menuItems[5] = "#5 ";
-
-}
-
-// reset leaderboard and settings
-void reset() {
-  currentSettings = defaultSettings;
-  updateSettings();
-  // to do the rest (leaderboard)
-  goBack();
-}
-
 void changeName() {
-  // TO DO
+  byte position = 0;
+  byte nameLength = strlen(currentSettings.playerName);
+  const byte padd = 3;
+
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("  ");
+  lcd.write(9);
+  lcd.print(currentSettings.playerName);
+  lcd.setCursor(displayCols - padd, 0);
+  lcd.print("<");
+
+  lcd.setCursor(0, 1);
+  lcd.print("Press to save");
+  lcd.setCursor(padd, 0);
+
+  // shows current cursor
+  lcd.cursor();
+
+  while(!buttonPressed()) { 
+    // move left / right
+    byte operation = handleJoystickXaxis();
+    if (operation == 2) {
+      if (position < maxNameLen-1) {
+        position++;
+        lcd.setCursor(padd + position, 0);
+      }
+    } else if (operation == 1) {
+      if (position > 0) {
+        position--;
+        lcd.setCursor(padd + position, 0);
+      }
+    } 
+
+    // change letter (up / down)
+    int change = changeLetter();
+    if (change != 0) {
+      currentSettings.playerName[position] += change;
+      lcd.print(currentSettings.playerName[position]);
+      lcd.setCursor(padd + position, 0);
+    }
+  }
+  // currentSettings.playerName = newName;
+  lcd.noCursor();
+  lcd.clear();
+  currentMenu = 2;
 }
 
 void audio() {
@@ -664,6 +684,23 @@ void audio() {
   
   lcd.clear();
   currentMenu = 2;
+}
+
+// reset leaderboard and settings
+void reset() {
+  // reset settings
+  currentSettings = defaultSettings;
+  saveToEEPROM("settings");
+  
+  // reset leaderboard
+  currentPlayer = defaultPlayer;
+  for (int i = 0; i < maxLeaderboardEntries; i++) {
+    leaderboard[i] = defaultPlayer;
+  }
+  saveToEEPROM("leaderboard");
+
+  updateSettings();
+  goBack();
 }
 
 // buzzer sounds for menu switching and scrolling up and down
@@ -701,7 +738,26 @@ byte handleJoystickXaxis() {
     flag = 1;
   } else if (xValue < highMiddleThreshold && xValue > lowMiddleThreshold && yValue < highMiddleThreshold && yValue > lowMiddleThreshold) {
       joyMoved = 0;
-    }
+  }
+  return flag;
+}
+
+int changeLetter() {
+  xValue = analogRead(pinX);
+  yValue = analogRead(pinY);
+  reading = digitalRead(pinSW);
+  int flag = 0;
+
+  if (yValue > upperThreshold && xValue < highMiddleThreshold && xValue > lowMiddleThreshold && joyMoved == 0) {
+    joyMoved++;
+    flag = 1;
+  } else if (yValue < lowerThreshold && xValue < highMiddleThreshold && xValue > lowMiddleThreshold && joyMoved == 0) {
+    joyMoved++;
+    flag = -1;
+  } else if (xValue < highMiddleThreshold && xValue > lowMiddleThreshold && yValue < highMiddleThreshold && yValue > lowMiddleThreshold) {
+      joyMoved = 0;
+  }
+  
   return flag;
 }
 
@@ -764,21 +820,40 @@ void goBack() {
   menuCursor = 0;
   matrixMenuSymbols();
   loadMenuItems();
+  lcd.clear();
 }
 
 void updateSettings() {
-  // lcd contrast
-  int mappedValue = map(currentSettings.lcdContrast, 1, maxBlocks, minLcdContrast, maxLcdContrast);
-  analogWrite(v0, mappedValue);
+  // name
+  strcpy(currentPlayer.name, currentSettings.playerName);
   // lcd brightness
+  int mappedValue = map(currentSettings.lcdBrightness, 1, maxBlocks, minLcdBrightness, maxLcdBrightness);
+  analogWrite(backlightPin, mappedValue);
   // matrix brightness
   for (int i = 0; i < lc.getDeviceCount(); i++) {
     lc.setIntensity(0, currentSettings.matrixBrightness);
   }
 }
 
-void saveToEEPROM() {
-  // TO DO
+void saveToEEPROM(String object) {
+  unsigned int offset = 0;
+  // save settings
+  if (object == "settings") {
+    EEPROM.put(offset, currentSettings);
+  }
+  offset += sizeof(currentSettings);
+  // save highscores to do
+  if (object == "leaderboard") {
+    EEPROM.put(offset, leaderboard);
+  }
+}
+
+void loadFromEEPROM() {
+  unsigned int offset = 0;
+  
+  EEPROM.get(offset, currentSettings);
+  offset += sizeof(currentSettings);
+  EEPROM.get(offset, leaderboard);
 }
 
 void displayWelcome() {
@@ -790,7 +865,18 @@ void displayWelcome() {
   lcd.clear();
 }
 
-
+// create custom display chars
+void lcdCustomChars() {
+  lcd.createChar(1, heart1);
+  lcd.createChar(2, heart2);
+  lcd.createChar(3, upArrow);
+  lcd.createChar(4, downArrow);
+  lcd.createChar(5, plus);
+  lcd.createChar(6, minus);
+  lcd.createChar(7, block);
+  lcd.createChar(8, emptyBlock);
+  lcd.createChar(9, playerIcon);
+}
 
 
 
