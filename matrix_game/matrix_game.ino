@@ -108,12 +108,12 @@ const byte heart1[] = {0x00, 0x00, 0x0A, 0x15, 0x11, 0x0A, 0x04, 0x00};
 const byte heart2[] = {0x00, 0x00, 0x0A, 0x1F, 0x1F, 0x0E, 0x04, 0x00};
 const byte upArrow[] = {B00100, B01110, B11111, B00100, B00100, B00100, B00100, B00100};
 const byte downArrow[] = {B00100, B00100, B00100, B00100, B00100, B11111, B01110, B00100};
-const byte plus[] = {B00000, B00100, B00100, B11111, B00100, B00100, B00000, B00000};
-const byte minus[] = {B00000, B00000, B00000, B11111, B00000, B00000, B00000, B00000};
 const byte block[] = {B00000, B01110, B01110, B01110, B01110,  B01110,  B01110, B00000};
 const byte emptyBlock[] = {B00000, B11111, B10001, B10001, B10001, B10001, B10001, B11111};
 const byte playerIcon[] = {B01110,B01110, B00100, B11111, B00100, B00100, B01010, B01010};
 const byte nameEnd[] = {B00001, B00111, B01111, B11111, B11111, B01111, B00111, B00001};
+const byte soundOff[] = {B00001, B00011, B01111, B01111, B01111, B00011, B00001, B00000};
+const byte soundOn[] = {B00001, B00011, B00101, B01001, B01001, B01011, B11011, B11000};
 
 // EEPROM variables
 // values to save to eeprom later
@@ -189,11 +189,11 @@ void displayMenu() {
     int j = i + displayState;
     if (j == menuCursor) {
       lcd.setCursor(0, n);
-      lcd.print("*");
+      lcd.print('*');
       displayOption(n, j);
     } else {
       lcd.setCursor(0, n);
-      lcd.print(" ");
+      lcd.print(' ');
       lcd.print(menuItems[j]);
     }
     n++; 
@@ -563,32 +563,31 @@ void progressBar(int lastValue, int maxBlocks, byte menuOption) {
     byte operation = handleJoystickXaxis();
 
     lcd.setCursor(0, 0);
-    lcd.write(6);
+    lcd.write('-');
     lcd.setCursor(displayCols - 1, 0);
-    lcd.write(5);
+    lcd.write('+');
 
-    lcd.setCursor(0, 1);
-    lcd.print("Press to save");
+    printSaveMessage();
 
     for (int i = 0; i < maxBlocks; i++) {
       lcd.setCursor(i+1, 0);
       if (i < lastValue) {
-        lcd.write(7);
+        lcd.write(5);
       } else {
-        lcd.write(8); 
+        lcd.write(6); 
       }
     }  
 
     if (operation == 2) {
       if (lastValue < maxBlocks) {
         lcd.setCursor(lastValue + 1, 0);
-        lcd.write(7);
+        lcd.write(5);
         lastValue++;  
       }
     } else if (operation == 1) {
       if (lastValue > 1) {
         lcd.setCursor(lastValue, 0);
-        lcd.write(8);
+        lcd.write(6);
         lastValue--;
       }
     }
@@ -615,17 +614,22 @@ void changeName() {
   byte position = 0;
   byte nameLength = strlen(currentSettings.playerName);
   const byte padd = 3;
+  
+  // pad the name with white space
+  for (int i = 0; i < maxNameLen - nameLength; i++) {
+    currentSettings.playerName[i+nameLength] = ' ';
+  }
 
   lcd.clear();
   lcd.setCursor(0,0);
-  lcd.print("  ");
-  lcd.write(9);
+  lcd.print(' ');
+  lcd.write(7);
+  lcd.print('<');
   lcd.print(currentSettings.playerName);
   lcd.setCursor(displayCols - padd, 0);
-  lcd.print("<");
+  lcd.print('>');
 
-  lcd.setCursor(0, 1);
-  lcd.print("Press to save");
+  printSaveMessage();
   lcd.setCursor(padd, 0);
 
   // shows current cursor
@@ -650,11 +654,26 @@ void changeName() {
     int change = changeLetter();
     if (change != 0) {
       currentSettings.playerName[position] += change;
+      // treat overflow / underflow (range: space - Z | a - z)
+      switch(currentSettings.playerName[position]) {
+          case ' ' - 1:
+            currentSettings.playerName[position] = 'z';
+            break;
+          case 'a' - 1:
+            currentSettings.playerName[position] = 'Z';
+            break;
+          case 'Z' + 1:
+            currentSettings.playerName[position] = 'a';
+            break;
+          case 'z' + 1:
+            currentSettings.playerName[position] = ' ';
+            break;
+        }
       lcd.print(currentSettings.playerName[position]);
       lcd.setCursor(padd + position, 0);
     }
   }
-  // currentSettings.playerName = newName;
+  
   lcd.noCursor();
   lcd.clear();
   currentMenu = 2;
@@ -669,12 +688,15 @@ void audio() {
     Serial.println(operation);
     lcd.setCursor(0, 0);
     if (currentSettings.audioState) {
-      lcd.print("<   < ON >   >");
+      lcd.print("   ");
+      lcd.write(9);
+      lcd.print(" < ON >   >");
     } else {
-      lcd.print("<   < OFF >   >");
+      lcd.print("   ");
+      lcd.write(8);
+      lcd.print(" < OFF >   >");
     }
-    lcd.setCursor(0, 1);
-    lcd.print("Press to save");
+    printSaveMessage();
     if (operation == 2) {
       currentSettings.audioState = 1;
     } else if (operation == 1) {
@@ -871,12 +893,15 @@ void lcdCustomChars() {
   lcd.createChar(2, heart2);
   lcd.createChar(3, upArrow);
   lcd.createChar(4, downArrow);
-  lcd.createChar(5, plus);
-  lcd.createChar(6, minus);
-  lcd.createChar(7, block);
-  lcd.createChar(8, emptyBlock);
-  lcd.createChar(9, playerIcon);
+  lcd.createChar(5, block);
+  lcd.createChar(6, emptyBlock);
+  lcd.createChar(7, playerIcon);
+  lcd.createChar(8, soundOff);
+  lcd.createChar(9, soundOn);
 }
 
 
-
+void printSaveMessage () {
+  lcd.setCursor(0, 1);
+  lcd.print("> Press to save");
+}
