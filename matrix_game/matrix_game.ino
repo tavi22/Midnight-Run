@@ -150,6 +150,7 @@ void setup() {
   pinMode(pinSW, INPUT_PULLUP);  // activate pull-up resistor on the push-button pin
   pinMode(backlightPin, OUTPUT);
 
+  // load saved values
   loadFromEEPROM();
 
   lc.shutdown(0, false);  // turn off power saving, enables display
@@ -157,10 +158,9 @@ void setup() {
   lc.clearDisplay(0);
   matrixMenuSymbols();
   
-// display welcome message for 2 seconds before starting the application + lcd initialize
+  // display welcome message for 2 seconds before starting the application + lcd initialize
   lcd.begin(displayCols, displayRows);
   lcdCustomChars();
-
   displayWelcome();
   loadMenuItems();
 
@@ -168,12 +168,12 @@ void setup() {
 }
 
 void loop() {
-  
+  reading = digitalRead(pinSW);
+
   if (state == 0) {
     displayMenu();
   } else {
     play();
-    displayGameUI();
   }
 }
 
@@ -198,7 +198,7 @@ void displayMenu() {
 }
 
 void displayGameUI() {
-  // to do
+
   lcd.setCursor(0, 0);
   lcd.print("  Awesome Game");
   lcd.setCursor(0, 1);
@@ -214,13 +214,13 @@ void displayGameUI() {
       lcd.write(2);
     }
   }
-
-  handleJoystickPress();
 }
 
 // game process
 void play() {
-
+  displayGameUI();
+  handleJoystickPress();
+  
   // food led blinking
   if (millis() - previousMillis >= interval) {
     previousMillis = millis();
@@ -249,6 +249,7 @@ void play() {
   // eat the food => increase score => generate new food
   if (xPos == xFood && yPos == yFood) {
     currentPlayer.score++;
+    buzz(currentSettings.audioState, 1);
     generateFood();
   }
 }
@@ -260,22 +261,15 @@ void generateFood() {
   matrixChanged = true;
 }
 
-void updateMatrix() {
-  for(int row = 0; row < matrixSize; row++) {
-    for(int col = 0; col < matrixSize; col++) {
-      lc.setLed(0, row, col, matrix[row][col]);
-    }
-  }
-}
-
+// character movement handler
 void updatePositions() {
-  xValue =analogRead(pinX);
-  yValue =analogRead(pinY);
+  int up = joystickUpDown();
+  int right = joystickLeftRight();
 
   xLastPos = xPos;
   yLastPos = yPos;
   
-  if(xValue < lowerThreshold) {
+  if(up == -1) {
     if(xPos < matrixSize - 1) {
       xPos++;
     }
@@ -284,7 +278,7 @@ void updatePositions() {
     }
   }
 
-  if(xValue > upperThreshold) {
+  if(up == 1) {
     if(xPos > 0) {
       xPos--;
     }
@@ -293,7 +287,7 @@ void updatePositions() {
     }
   }
   
-  if(yValue > upperThreshold) {
+  if(right == 1) {
     if(yPos < matrixSize - 1) {
       yPos++;
     }
@@ -302,7 +296,7 @@ void updatePositions() {
     }
   }
   
-  if(yValue < lowerThreshold) {
+  if(right == -1) {
     if(yPos > 0) {
       yPos--;
     }
@@ -322,27 +316,34 @@ void updatePositions() {
 void stop() {
   state = 0;
   lcd.clear();
-  for (int i = 0; i < maxLeaderboardEntries; i++) {
-    if (currentPlayer.score > leaderboard[i].score) {
-      lcd.setCursor(5, 0);
-      lcd.print("HIGHSCORE!!!");
-      lcd.setCursor(0, 1);
-      lcd.print("You are # " + String(i));
-      delay(1000);
-      break;
+
+  // check if the scores belongs on the leaderboard
+  checkLeaderboard();
+
+  lcd.setCursor(0, 0);
+  lcd.print("!! Game Over !!");
+  lcd.setCursor(0, 1);
+  lcd.print("Going back");
+  delay(delayPeriod);
+  
+  currentPlayer.score = 0;
+  lcd.clear();
+  goBack();
+}
+
+void updateMatrix() {
+  for(int row = 0; row < matrixSize; row++) {
+    for(int col = 0; col < matrixSize; col++) {
+      lc.setLed(0, row, col, matrix[row][col]);
     }
   }
-  currentPlayer.score = 0;
-  goBack();
 }
 
 // handle joystick movement for menu
 void handleJoystickYaxis(byte maxCursor, byte maxState) {
-  xValue = analogRead(pinX);
-  yValue = analogRead(pinY);
-  reading = digitalRead(pinSW);
+  int operation = joystickUpDown();
   // menu items logic is to always see the next available option on the display
-  if (yValue > upperThreshold && xValue < highMiddleThreshold && xValue > lowMiddleThreshold && joyMoved == 0) {
+  if (operation == 1) {
     if (menuCursor != 0) {
       menuCursor--;
     } else menuCursor = maxCursor;
@@ -361,7 +362,7 @@ void handleJoystickYaxis(byte maxCursor, byte maxState) {
       matrixMenuSymbols();
     }
 
-  } else if (yValue < lowerThreshold && xValue < highMiddleThreshold && xValue > lowMiddleThreshold && joyMoved == 0) {
+  } else if (operation == -1) {
     if (menuCursor != maxCursor) {
       menuCursor++;
     } else menuCursor = 0;
@@ -379,25 +380,23 @@ void handleJoystickYaxis(byte maxCursor, byte maxState) {
     if (currentMenu == 0) {
       matrixMenuSymbols();
     }
-
-
-  } else if (xValue < highMiddleThreshold && xValue > lowMiddleThreshold && yValue < highMiddleThreshold && yValue > lowMiddleThreshold) {
-      joyMoved = 0;
   }
 }
 
-// handle joystick press in menus
+// handle joystick press in menu
 void handleJoystickPress() {
+  
   if (buttonPressed()) {
     if (state == 0) {
       if (currentMenu == 0 && menuCursor == 0) {
         state = 1;
+        lc.clearDisplay(0);
       } else {
       switchMenu();
       }
     } else {
       stop();
-    } 
+    }
   }
 }
 
@@ -462,6 +461,7 @@ void switchMenu() {
   displayState = 0;
   // save all the changes we've made
   saveToEEPROM("settings");
+  updateSettings();
   loadMenuItems();
 }
 
@@ -557,7 +557,7 @@ void displayOption(int line, int index) {
 void progressBar(int lastValue, int maxBlocks, byte menuOption) {
   lcd.clear();
   while (!buttonPressed()) {
-    byte operation = handleJoystickXaxis();
+    int operation = joystickLeftRight();
 
     lcd.setCursor(0, 0);
     lcd.print('-');
@@ -575,13 +575,13 @@ void progressBar(int lastValue, int maxBlocks, byte menuOption) {
       }
     }  
 
-    if (operation == 2) {
+    if (operation == 1) {
       if (lastValue < maxBlocks) {
         lcd.setCursor(lastValue + 1, 0);
         lcd.write(5);
         lastValue++;  
       }
-    } else if (operation == 1) {
+    } else if (operation == -1) {
       if (lastValue > 1) {
         lcd.setCursor(lastValue, 0);
         lcd.write(6);
@@ -632,13 +632,13 @@ void changeName() {
 
   while(!buttonPressed()) { 
     // move left / right
-    byte operation = handleJoystickXaxis();
-    if (operation == 2) {
+    int operation = joystickLeftRight();
+    if (operation == 1) {
       if (position < maxNameLen-1) {
         position++;
         lcd.setCursor(padd + position, 0);
       }
-    } else if (operation == 1) {
+    } else if (operation == -1) {
       if (position > 0) {
         position--;
         lcd.setCursor(padd + position, 0);
@@ -646,7 +646,7 @@ void changeName() {
     } 
 
     // change letter (up / down)
-    int change = changeLetter();
+    int change = joystickUpDown();
     if (change != 0) {
       currentSettings.playerName[position] += change;
       // treat overflow / underflow (range: space - Z | a - z)
@@ -668,6 +668,14 @@ void changeName() {
       lcd.setCursor(padd + position, 0);
     }
   }
+  // remove whitespace padding
+  for (int i = maxNameLen - 1; i > 0; i--) {
+      if (currentSettings.playerName[i] == ' ') {
+        currentSettings.playerName[i] = '\0';
+      } else {
+        break;
+      }
+  }
   
   lcd.noCursor();
   lcd.clear();
@@ -679,7 +687,7 @@ void audio() {
   Serial.println("IN");
 
   while (!buttonPressed()) {
-    byte operation = handleJoystickXaxis();
+    int operation = joystickLeftRight();
     Serial.println(operation);
     lcd.setCursor(0, 0);
     lcd.print("   ");
@@ -691,9 +699,9 @@ void audio() {
       lcd.print(" < OFF >   >");
     }
     printSaveMessage();
-    if (operation == 2) {
+    if (operation == 1) {
       currentSettings.audioState = 1;
-    } else if (operation == 1) {
+    } else if (operation == -1) {
       currentSettings.audioState = 0;
     }
   }
@@ -741,24 +749,26 @@ void resetScroll() {
   stringEnd = displayCols;
 }
 
-byte handleJoystickXaxis() {
-  byte flag = 0;
+// 1 - right | -1 - left | 0 - center
+int joystickLeftRight() {
+  int flag = 0;
   xValue = analogRead(pinX);
   yValue = analogRead(pinY);
   reading = digitalRead(pinSW);
   if (xValue > upperThreshold && yValue < highMiddleThreshold && yValue > lowMiddleThreshold && joyMoved == 0) {
     joyMoved++;
-    flag = 2;
+    flag = 1;
   } else if (xValue < lowerThreshold && yValue < highMiddleThreshold && yValue > lowMiddleThreshold && joyMoved == 0) {
     joyMoved++;
-    flag = 1;
+    flag = -1;
   } else if (xValue < highMiddleThreshold && xValue > lowMiddleThreshold && yValue < highMiddleThreshold && yValue > lowMiddleThreshold) {
       joyMoved = 0;
   }
   return flag;
 }
 
-int changeLetter() {
+// 1 - up | -1 - down | 0 - center
+int joystickUpDown() {
   xValue = analogRead(pinX);
   yValue = analogRead(pinY);
   reading = digitalRead(pinSW);
@@ -777,6 +787,7 @@ int changeLetter() {
   return flag;
 }
 
+// returns true if button is pressed
 bool buttonPressed() {
   bool flag = false;
   if (lastReading != reading) {
@@ -796,6 +807,7 @@ bool buttonPressed() {
   return flag;
 }
 
+// display a symbol on the matrix for each menu option
 void matrixMenuSymbols() {
   // if (currentMenu == 0) {}
   switch (menuCursor) {
@@ -851,6 +863,7 @@ void updateSettings() {
   }
 }
 
+// save settings or leaderboard
 void saveToEEPROM(String object) {
   unsigned int offset = 0;
   // save settings
@@ -864,6 +877,7 @@ void saveToEEPROM(String object) {
   }
 }
 
+// load settings and leaderboard
 void loadFromEEPROM() {
   unsigned int offset = 0;
   
@@ -891,11 +905,31 @@ void lcdCustomChars() {
   lcd.createChar(6, emptyBlock);
   lcd.createChar(7, soundOn);
   lcd.createChar(8, soundOff);
-
 }
-
 
 void printSaveMessage () {
   lcd.setCursor(0, 1);
   lcd.print("> Press to save");
+}
+
+// check if the score is a highscore
+void checkLeaderboard() {
+  for (int i = 0; i < maxLeaderboardEntries; i++) {
+    if (currentPlayer.score > leaderboard[i].score) {
+      lcd.setCursor(5, 0);
+      lcd.print("HIGHSCORE!!!");
+      lcd.setCursor(0, 1);
+      lcd.print("You are # " + String(i+1));
+      delay(delayPeriod);
+
+      // insert into rightful place
+      for (int j = maxLeaderboardEntries - 1; j >= i; j--) {
+        leaderboard[j] = leaderboard[j-1];
+      }
+      leaderboard[i] = currentPlayer;
+      saveToEEPROM("leaderboard");
+      lcd.clear();
+      break;
+    }
+  }
 }
