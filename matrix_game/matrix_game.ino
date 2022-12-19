@@ -104,8 +104,8 @@ byte menuCursor = 0;
 byte displayState = 0;
 
 // special LCD displays
-const byte heart1[] = {0x00, 0x00, 0x0A, 0x15, 0x11, 0x0A, 0x04, 0x00};
-const byte heart2[] = {0x00, 0x00, 0x0A, 0x1F, 0x1F, 0x0E, 0x04, 0x00};
+const byte heart1[] = {B00000, B00000, B01010, B11111, B11111, B01110, B00100, B00000};
+const byte heart2[] = {B00000, B00000, B01010, B10101, B10001, B01010, B00100, B00000};
 const byte upArrow[] = {B00100, B01110, B11111, B00100, B00100, B00100, B00100, B00100};
 const byte downArrow[] = {B00100, B00100, B00100, B00100, B00100, B11111, B01110, B00100};
 const byte block[] = {B00000, B01110, B01110, B01110, B01110,  B01110,  B01110, B00000};
@@ -116,7 +116,6 @@ const byte soundOff[] = {B00001, B00011, B01111, B01111, B01111, B00011, B00001,
 const byte soundOn[] = {B00001, B00011, B00101, B01001, B01001, B01011, B11011, B11000};
 
 // EEPROM variables
-// values to save to eeprom later
 const byte maxNameLen = 10;
 
 struct Player {
@@ -156,8 +155,6 @@ void setup() {
   lc.shutdown(0, false);  // turn off power saving, enables display
   updateSettings(); 
   lc.clearDisplay(0);
-  matrix[xPos][yPos] = 1;
-  matrix[xFood][yFood] = 1;
   matrixMenuSymbols();
   
 // display welcome message for 2 seconds before starting the application + lcd initialize
@@ -208,13 +205,13 @@ void displayGameUI() {
   lcd.print("Score: ");
   lcd.print(currentPlayer.score);
   lcd.print("    ");
-  int healthCopy = health;
+  int healthCopy = health-1;
   for (int i = 0; i < lives; i++) {
     if (healthCopy > 0) {
-      lcd.write(2);
+      lcd.write(1);
       healthCopy--;
     } else {
-      lcd.write(1);
+      lcd.write(2);
     }
   }
 
@@ -563,9 +560,9 @@ void progressBar(int lastValue, int maxBlocks, byte menuOption) {
     byte operation = handleJoystickXaxis();
 
     lcd.setCursor(0, 0);
-    lcd.write('-');
+    lcd.print('-');
     lcd.setCursor(displayCols - 1, 0);
-    lcd.write('+');
+    lcd.print('+');
 
     printSaveMessage();
 
@@ -622,9 +619,7 @@ void changeName() {
 
   lcd.clear();
   lcd.setCursor(0,0);
-  lcd.print(' ');
-  lcd.write(7);
-  lcd.print('<');
+  lcd.print("  <");
   lcd.print(currentSettings.playerName);
   lcd.setCursor(displayCols - padd, 0);
   lcd.print('>');
@@ -687,12 +682,11 @@ void audio() {
     byte operation = handleJoystickXaxis();
     Serial.println(operation);
     lcd.setCursor(0, 0);
+    lcd.print("   ");
     if (currentSettings.audioState) {
-      lcd.print("   ");
-      lcd.write(9);
-      lcd.print(" < ON >   >");
+      lcd.write(7);
+      lcd.print(" < ON  >   >");
     } else {
-      lcd.print("   ");
       lcd.write(8);
       lcd.print(" < OFF >   >");
     }
@@ -895,9 +889,9 @@ void lcdCustomChars() {
   lcd.createChar(4, downArrow);
   lcd.createChar(5, block);
   lcd.createChar(6, emptyBlock);
-  lcd.createChar(7, playerIcon);
+  lcd.createChar(7, soundOn);
   lcd.createChar(8, soundOff);
-  lcd.createChar(9, soundOn);
+
 }
 
 
