@@ -67,6 +67,7 @@ const byte resetMatrix[matrixSize] = {B00000000, B00000000, B00000000, B00000000
 
 // auxiliary menu variables
 const long delayPeriod = 2000;
+const long endMessageDelay = 3000;
 byte currentMenu = 0;
 const byte maxItemCount = 7;
 const byte menuOptionsCount = 5;
@@ -150,6 +151,7 @@ const int maxLcdBrightness = 255;
 const int minLcdBrightness = 55;
 const int maxBlocks = 14;
 const int maxLeaderboardEntries = 5;
+const int maxHealth = 4;
 
 const Settings defaultSettings = {"Unknown", 1, 5, 2, 1};
 Settings currentSettings;
@@ -180,9 +182,6 @@ void setup() {
   displayWelcome();
   loadMenuItems();
 
-  // initialize game struct
-  initialize_game();
-
   Serial.begin(9600);
 }
 
@@ -199,7 +198,6 @@ void loop() {
 void displayMenu() {
   int n = 0;
   handleJoystickYaxis(menuLengths[currentMenu]-1, menuLengths[currentMenu]-2);
-  handleJoystickPress();
   
   for (int i = 0; i < 2; i++) {
     int j = i + displayState;
@@ -214,18 +212,34 @@ void displayMenu() {
     }
     n++; 
   }
+
+  handleJoystickPress();
 }
 
 void displayGameUI() {
-
   lcd.setCursor(0, 0);
-  lcd.print("  Awesome Game");
+  lcd.print(String(currentPlayer.name));
+  lcd.setCursor(displayCols-5, 0);
+  lcd.print("Lv." + String(currentGame.level));
+  char diff;
+  switch(currentSettings.difficulty) {
+    case 1:
+      diff = 'E';
+      break;
+    case 2:
+      diff = 'M';
+      break;
+    case 3:
+      diff = 'H';
+      break;
+  }
+  lcd.print(diff);
   lcd.setCursor(0, 1);
   lcd.print("Score: ");
   lcd.print(currentPlayer.score);
-  lcd.print("    ");
+  lcd.setCursor(displayCols - 4, 1);
   int healthCopy = currentGame.health;
-  for (int i = 0; i < currentGame.health; i++) {
+  for (int i = 0; i < maxHealth; i++) {
     if (healthCopy > 0) {
       lcd.write(1);
       healthCopy--;
@@ -236,6 +250,7 @@ void displayGameUI() {
 }
 
 // game process
+// to do : add themesong
 void play() {
   displayGameUI();
   blinkCar();
@@ -246,6 +261,7 @@ void play() {
       carMovement();
       obstacles(currentGame.level);
       fallFrequency();
+      nextLevel();
     } else {
       died();
     }
@@ -256,12 +272,29 @@ void play() {
   handleJoystickPress();
 }
 
+// advance after certain amount of time/score
+void nextLevel() {
+  if (millis() - startTimer >= nextLevelTimer) {
+    currentGame.level ++;
+    clearMatrix();
+    if (currentGame.level <= 5) {
+      delay(1000);
+      // to do : next level animation
+      startTimer = millis();
+    } else {
+      won();
+    }
+  }
+}
+
 // movement logic
 void carMovement() {
+  // listen for moves with a delay of 100ms
   if (millis() - lastMoved > moveInterval) {
     updatePositions();
     lastMoved = millis();
   }
+  // if a move has been detected, update matrix
   if (matrixChanged == true) {
     updateMatrix();
     matrixChanged = false;
@@ -301,9 +334,8 @@ void updatePositions() {
 }
 
 // spawn obstacles depending on level
-// to do
+// to do : maybe improve obstacles (and add infinite mode)
 void obstacles(int level) {
-  // to do
   bool valid = true;
   const int space = 4;
 
@@ -322,25 +354,80 @@ void obstacles(int level) {
     return;
   } 
 
-  int obstCol;
+  int obstCol = random(0, 8);
   // if valid, start spawning obstacles
-  switch(currentGame.level) {
+  switch(level) {
     case 1:
-      obstCol = random(0, 8);
       if (obstCol % 2) {
-        lc.setLed(0, 0, obstCol, true);
-        matrix[0][obstCol] = 1;
-        lc.setLed(0, 1, obstCol, true);
-        matrix[1][obstCol] = 1;
+        makeObstacle(0, obstCol);
+        makeObstacle(1, obstCol);
       } else {
-        lc.setLed(0, 0, obstCol, true);
-        matrix[0][obstCol] = 1;
-        lc.setLed(0, 1, obstCol+1, true);
-        matrix[0][obstCol+1] = 1;
+        makeObstacle(0, obstCol);
+        makeObstacle(0, obstCol+1);
+      }
+      break;
+    case 2:
+      if (obstCol % 2) {
+        makeObstacle(0, obstCol);
+        makeObstacle(0, obstCol-1);
+        makeObstacle(1, obstCol);
+      } else {
+        makeObstacle(0, obstCol);
+        makeObstacle(0, obstCol+1);
+        makeObstacle(0, (obstCol == 0) ? obstCol+2 : obstCol-1);
+      }
+      break;
+    case 3:
+      if (obstCol % 2) {
+        makeObstacle(0, obstCol);
+        makeObstacle(0, obstCol+1);
+        makeObstacle(0, obstCol-1);
+        makeObstacle(0, (obstCol == 7) ? obstCol-2 : obstCol+2);
+      } else {
+        makeObstacle(0, obstCol);
+        makeObstacle(0, obstCol+1);
+        makeObstacle(1, (obstCol == 6) ? obstCol-1 : obstCol+2);
+      }
+      break;
+    case 4:
+      if (obstCol % 2) {
+        makeObstacle(0, obstCol);
+        makeObstacle(1, obstCol);
+        makeObstacle(2, obstCol);
+        makeObstacle(2, (obstCol == 7) ? obstCol-1 : obstCol+1);
+      } else {
+        makeObstacle(0, obstCol);
+        makeObstacle(0, obstCol+1);
+        makeObstacle(1, obstCol);
+        makeObstacle(1, obstCol+1);
+        makeObstacle(2, obstCol+2);
+      }
+      break;
+    case 5:
+      if (obstCol % 2) {
+        makeObstacle(0, obstCol);
+        makeObstacle(1, obstCol);
+        makeObstacle(2, obstCol);
+        makeObstacle(3, obstCol);
+        makeObstacle(2, obstCol+1);
+        makeObstacle(2, obstCol+2);
+        makeObstacle(2, obstCol+3);
+      } else {
+        makeObstacle(0, obstCol);
+        makeObstacle(0, obstCol+1);
+        makeObstacle(0, obstCol+2);
+        makeObstacle(0, obstCol-2);
+        makeObstacle(0, obstCol-1);
       }
       break;
   }
 
+}
+
+// basically turns on an led
+void makeObstacle(int row, int col) {
+  lc.setLed(0, row, col, true);
+  matrix[row][col] = 1;
 }
 
 // set falling mechanics depending on level
@@ -385,11 +472,17 @@ void fall() {
 
 // decrease health when colliding with obstacle
 void damage() {
-  // to do
+  if(matrix[xPos][yPos] == 1) {
+    currentGame.health --;
+    currentGame.alive = 0;
+    currentGame.deathTime = millis();
+    // to do : add sound on hit
+  }
 }
 
 // increase score when an obstacle has passed
 void calculateScore() {
+  // level and difficulty bonus
   int points = (currentGame.level + 1) * currentSettings.difficulty;
   bool hasPassed = false;
 
@@ -431,10 +524,9 @@ void won() {
   lcd.print("- YOU WON -");
   lcd.setCursor(2, 1);
   lcd.print("!! " + String(currentPlayer.name) + " !!");
-  delay(delayPeriod);
+  delay(endMessageDelay);
   lcd.clear();
 
-  showScore();
   stop();
 }
 
@@ -448,13 +540,14 @@ void died() {
   lcd.print("- YOU DIED -");
   lcd.setCursor(2, 1);
   lcd.print("!! " + String(currentPlayer.name) + " !!");
-  delay(delayPeriod);
+  delay(endMessageDelay);
 
   if (currentGame.health > 0) {
     currentGame.alive = true;
+    delay(endMessageDelay);
+    lcd.clear();
     return;
   } else {
-    showScore();
     stop();
   }
 }
@@ -468,11 +561,12 @@ void stop() {
   checkLeaderboard();
   lcd.clear();
 
+  // to do : animations animations animations
   lcd.setCursor(0, 0);
   lcd.print("!! Game Over !!");
   lcd.setCursor(2, 1);
   lcd.print("<Going back>");
-  delay(delayPeriod);
+  delay(endMessageDelay);
   
   clearMatrix();
   currentPlayer.score = 0;
@@ -501,20 +595,28 @@ void updateMatrix() {
 
 void initialize_game() {
   currentGame = newGame;
+  if (currentSettings.difficulty != 1) {
+    currentGame.health -= currentSettings.difficulty;
+  }
+
   xPos = 7;
   yPos = 3;
   matrix[xPos][yPos] = 1;
   randomSeed(analogRead(5)); // randomize using noise from A5
+
+  lcd.clear();
+  lc.clearDisplay(0);
 }
 
 // display score
 void showScore() {
+  lcd.clear();
   lcd.setCursor(2, 0);
-  lcd.print("Your Score ");
-  lcd.write(4);
+  lcd.print("Your Score: ");
   lcd.setCursor(4, 1);
   lcd.print("-> " + String(currentPlayer.score) + " <-");
-  delay(delayPeriod);
+  delay(endMessageDelay);
+  lcd.clear();
 }
 
 // handle joystick movement for menu
@@ -563,12 +665,14 @@ void handleJoystickYaxis(byte maxCursor, byte maxState) {
 
 // handle joystick press in menu
 void handleJoystickPress() {
-  
   if (buttonPressed()) {
     if (state == 0) {
       if (currentMenu == 0 && menuCursor == 0) {
         state = 1;
-        lc.clearDisplay(0);
+        // initialize game struct
+        initialize_game();
+        startTimer = millis();
+        // to do : maybe start animation??
       } else {
       switchMenu();
       }
@@ -1071,6 +1175,7 @@ void displayWelcome() {
   lcd.print("Welcome!");
   delay(delayPeriod);
   lcd.clear();
+  // to do : welcome matrix animation + GAME NAME!!
 }
 
 // create custom display chars
@@ -1092,13 +1197,15 @@ void printSaveMessage () {
 
 // check if the score is a highscore
 void checkLeaderboard() {
+  showScore();
   for (int i = 0; i < maxLeaderboardEntries; i++) {
     if (currentPlayer.score > leaderboard[i].score) {
-      lcd.setCursor(2, 0);
+      // to do : highscore matrix animation
+      lcd.setCursor(0, 0);
       lcd.print("New Highscore!!!");
       lcd.setCursor(0, 1);
-      lcd.print("You are # " + String(i+1));
-      delay(delayPeriod);
+      lcd.print("   You are #" + String(i+1));
+      delay(endMessageDelay);
 
       // insert into rightful place
       for (int j = maxLeaderboardEntries - 1; j >= i; j--) {
@@ -1116,5 +1223,5 @@ void checkLeaderboard() {
   lcd.print("Not in the top:(");
   lcd.setCursor(2, 1);
   lcd.print("Try again!");
-  delay(delayPeriod);
+  delay(endMessageDelay);
 }
