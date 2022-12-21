@@ -1,6 +1,8 @@
 #include <LiquidCrystal.h>
 #include <LedControl.h>
 #include <EEPROM.h>
+#include <Arduino.h>
+// #include "Soundboard.h"
 
 // LCD variables
 const byte RS = 9;
@@ -64,6 +66,9 @@ const byte settingsArt[matrixSize] = {B00011000, B00011100, B10011110, B11111111
 const byte aboutArt[matrixSize] = {B10011001, B01011010, B00111100, B11111111, B11111111, B00111100, B01011010, B10011001};
 const byte howToArt[matrixSize] = {B11111111, B01111110, B00111100, B00011000, B00011000, B00111100, B01111110, B11111111};
 const byte resetMatrix[matrixSize] = {B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000, B00000000};
+const uint64_t assets[] = {0x001a244a91a1d966, 0x00183c7effffff66, 0x3e08080814227f00, 0x00423c0102660000};
+const uint64_t numbers[] = {0x0000000000000000, 0x7e1818181b1b1e1c, 0x7e060c1830361c00, 0x384c407070404c38, 0x202020fe22242830, 0x001e2020201e023e};
+const int smallAnimationDelay = 25;
 
 // auxiliary menu variables
 const long delayPeriod = 2000;
@@ -174,13 +179,13 @@ void setup() {
   lc.shutdown(0, false);  // turn off power saving, enables display
   updateSettings(); 
   lc.clearDisplay(0);
-  matrixMenuSymbols();
   
   // display welcome message for 2 seconds before starting the application + lcd initialize
   lcd.begin(displayCols, displayRows);
   lcdCustomChars();
   displayWelcome();
   loadMenuItems();
+  matrixMenuSymbols();
 
   Serial.begin(9600);
 }
@@ -250,7 +255,6 @@ void displayGameUI() {
 }
 
 // game process
-// to do : add themesong
 void play() {
   displayGameUI();
   blinkCar();
@@ -278,13 +282,34 @@ void nextLevel() {
     currentGame.level ++;
     clearMatrix();
     if (currentGame.level <= 5) {
-      delay(1000);
-      // to do : next level animation
+      blinkAnimation(numbers[currentGame.level]);
       startTimer = millis();
     } else {
       won();
     }
   }
+}
+
+// matrix animations -> @ xantorohara.github.io/led-matrix-editor/
+void matrixAnimation(uint64_t image) {
+  for (int i = 0; i < matrixSize; i++) {
+    byte r = (image >> i * matrixSize) & 0xFF;
+    for (int j = 0; j < matrixSize; j++) {
+      lc.setLed(0, i, j, bitRead(r, j));
+    }
+  }
+}
+
+void blinkAnimation(uint64_t image) {
+  const int animationDelay = 750;
+  matrixAnimation(image);
+  delay(animationDelay);
+  matrixAnimation(numbers[0]);
+  delay(animationDelay);
+  matrixAnimation(image);
+  delay(animationDelay);
+  matrixAnimation(numbers[0]);
+  delay(animationDelay);
 }
 
 // movement logic
@@ -476,7 +501,7 @@ void damage() {
     currentGame.health --;
     currentGame.alive = 0;
     currentGame.deathTime = millis();
-    // to do : add sound on hit
+    buzz(currentSettings.audioState, 3);
   }
 }
 
@@ -516,14 +541,15 @@ void blinkCar() {
 
 // display win message
 void won() {
+  const int wonAsset = 1;
   lcd.clear();
 
-  // to do : win animation
-
+  buzz(currentSettings.audioState, 5);
   lcd.setCursor(3, 0);
   lcd.print("- YOU WON -");
   lcd.setCursor(2, 1);
   lcd.print("!! " + String(currentPlayer.name) + " !!");
+  matrixAnimation(assets[wonAsset]);
   delay(endMessageDelay);
   lcd.clear();
 
@@ -532,20 +558,23 @@ void won() {
 
 // display dying animation => stop if health is 0
 void died() {
+  const int diedAsset = 0;
   lcd.clear();
   clearMatrix();
-  // to do : matrix death animation
 
+  buzz(currentSettings.audioState, 4);
   lcd.setCursor(3, 0);
   lcd.print("- YOU DIED -");
   lcd.setCursor(2, 1);
   lcd.print("!! " + String(currentPlayer.name) + " !!");
+  matrixAnimation(assets[diedAsset]);
   delay(endMessageDelay);
 
   if (currentGame.health > 0) {
     currentGame.alive = true;
-    delay(endMessageDelay);
+    blinkAnimation(numbers[currentGame.level]);
     lcd.clear();
+    startTimer = millis();
     return;
   } else {
     stop();
@@ -561,18 +590,33 @@ void stop() {
   checkLeaderboard();
   lcd.clear();
 
-  // to do : animations animations animations
   lcd.setCursor(0, 0);
   lcd.print("!! Game Over !!");
   lcd.setCursor(2, 1);
   lcd.print("<Going back>");
-  delay(endMessageDelay);
+  endGameAnimation();
   
   clearMatrix();
-  currentPlayer.score = 0;
   initialize_game();
   lc.clearDisplay(0);
   goBack();
+}
+
+void endGameAnimation() {
+  const uint64_t restoreLives[] = {
+    0x0000000000000000, 0x1824428181996600,
+    0x183c428181996600, 0x183c7e8181996600, 0x183c7eff81996600,
+    0x183c7effff996600, 0x183c7effffff6600};
+  const int restoreLives_LEN = sizeof(restoreLives) / 8;
+  const int endAnimationDelay = 250;
+  clearMatrix();
+  
+  for (int i = 0; i < restoreLives_LEN; i++) {
+    matrixAnimation(restoreLives[i]);
+    delay(endAnimationDelay);
+  }
+
+
 }
 
 // turn off all leds and update
@@ -599,6 +643,7 @@ void initialize_game() {
     currentGame.health -= currentSettings.difficulty;
   }
 
+  currentPlayer.score = 0;
   xPos = 7;
   yPos = 3;
   matrix[xPos][yPos] = 1;
@@ -610,11 +655,13 @@ void initialize_game() {
 
 // display score
 void showScore() {
+  const int scoreAsset = 2;
   lcd.clear();
   lcd.setCursor(2, 0);
   lcd.print("Your Score: ");
   lcd.setCursor(4, 1);
   lcd.print("-> " + String(currentPlayer.score) + " <-");
+  matrixAnimation(assets[scoreAsset]);
   delay(endMessageDelay);
   lcd.clear();
 }
@@ -671,8 +718,12 @@ void handleJoystickPress() {
         state = 1;
         // initialize game struct
         initialize_game();
+        buzz(currentSettings.audioState, 2);
+        lcd.print("Starting...");
+        blinkAnimation(numbers[1]);
+        lcd.clear();
         startTimer = millis();
-        // to do : maybe start animation??
+        // playThemesong();
       } else {
       switchMenu();
       }
@@ -1009,18 +1060,42 @@ void reset() {
   goBack();
 }
 
-// buzzer sounds for menu switching and scrolling up and down
-// option = 0 -> scroll || option = 1 -> click
+// buzzer sound effects
+// option = 0 -> scroll     || option = 1 -> click
+// option = 2 -> game start || option = 3 -> hit
+// option = 4 -> died       || option = 5 -> won
 void buzz(byte audioState, byte option) {
+  // menu
   const int buzzerTime = 200;
-  const int scrollTone = 500;
-  const int clickTone = 1000;
+  const int clickTone = 500;
+  const int scrollTone = 1000;
+  // gameplay
+  const int duration = 500;
+  const int startTone = 1500;
+  const int hitTone = 100;
+  const int diedTone = 300;
+  const int wonTone = 400;
 
   if (audioState) {
-    if (option) {
-      tone(buzzerPin, scrollTone, buzzerTime);
-    } else {
-      tone(buzzerPin, clickTone, buzzerTime);
+    switch (option) {
+      case 0:
+        tone(buzzerPin, scrollTone, buzzerTime);
+        break;
+      case 1:
+        tone(buzzerPin, clickTone, buzzerTime);
+        break;
+      case 2:
+        tone(buzzerPin, startTone, duration);
+        break;
+      case 3:
+        tone(buzzerPin, hitTone, duration);
+        break;
+      case 4:
+        tone(buzzerPin, diedTone, duration);
+        break;
+      case 5:
+        tone(buzzerPin, wonTone, duration);
+        break;
     }
   }
 }
@@ -1170,12 +1245,27 @@ void loadFromEEPROM() {
 
 void displayWelcome() {
   lcd.setCursor(0, 0);
-  lcd.print("Interesting Name");
-  lcd.setCursor(4, 1);
-  lcd.print("Welcome!");
+  lcd.print("Welcome to");
+  lcd.setCursor(3, 1);
+  lcd.print("Midnight Run"); 
+
+  // matrix animation
+  clearMatrix();
+  for (int row = 0; row < matrixSize; row++) {
+    for (int col = 0; col < matrixSize; col++) {
+      lc.setLed(0, row, col, true);
+      delay(smallAnimationDelay);
+    }
+  }
+
+  for (int row = 0; row < matrixSize; row++) {
+    for (int col = 0; col < matrixSize; col++) {
+      lc.setLed(0, row, col, false);
+      delay(smallAnimationDelay);
+    }
+  } 
   delay(delayPeriod);
   lcd.clear();
-  // to do : welcome matrix animation + GAME NAME!!
 }
 
 // create custom display chars
@@ -1197,15 +1287,24 @@ void printSaveMessage () {
 
 // check if the score is a highscore
 void checkLeaderboard() {
+  const int messageDelay = 400;
   showScore();
+
   for (int i = 0; i < maxLeaderboardEntries; i++) {
     if (currentPlayer.score > leaderboard[i].score) {
-      // to do : highscore matrix animation
+      matrixAnimation(numbers[i+1]);
       lcd.setCursor(0, 0);
       lcd.print("New Highscore!!!");
-      lcd.setCursor(0, 1);
-      lcd.print("   You are #" + String(i+1));
-      delay(endMessageDelay);
+      lcd.setCursor(3, 1);
+      lcd.print("You are #" + String(i+1));
+      // blink lcd
+      for (int i = 0; i < 5; i++) {
+        lcd.display();
+        delay(messageDelay);
+        lcd.noDisplay();
+        delay(messageDelay);
+      }
+      lcd.display();
 
       // insert into rightful place
       for (int j = maxLeaderboardEntries - 1; j >= i; j--) {
@@ -1219,9 +1318,11 @@ void checkLeaderboard() {
   }
 
   // not a highscore
+  const int noHighscore = 3;
   lcd.setCursor(0, 0);
   lcd.print("Not in the top:(");
   lcd.setCursor(2, 1);
   lcd.print("Try again!");
+  matrixAnimation(assets[noHighscore]);
   delay(endMessageDelay);
 }
