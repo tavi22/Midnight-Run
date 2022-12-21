@@ -186,7 +186,7 @@ void setup() {
   displayWelcome();
   loadMenuItems();
   matrixMenuSymbols();
-
+  lcd.clear();
   Serial.begin(9600);
 }
 
@@ -202,16 +202,11 @@ void loop() {
 
 // 0 - off / 1 - on
 void showCar(byte flag) {
-  matrix[xPos][yPos] = flag;
   lc.setLed(0, xPos, yPos, flag);
 
   if (currentSettings.difficulty == 3) {
-    matrix[xPos][yPos+1] = flag;
-    lc.setLed(0, xPos, yPos+1, flag);
-    matrix[xPos+1][yPos] = flag;
-    lc.setLed(0, xPos+1, yPos, flag);
-    matrix[xPos+1][yPos+1] = flag;
-    lc.setLed(0, xPos+1, yPos+1, flag);
+    lc.setLed(0, xPos-1, yPos+1, flag);
+    lc.setLed(0, xPos, yPos+2, flag);
   }
 }
 
@@ -341,9 +336,6 @@ void carMovement() {
 // update when car is moved
 void updatePositions() {
   int right = joystickLeftRight();
-
-  xLastPos = xPos;
-  yLastPos = yPos;
   
   if(right == 1) {
     if(yPos < matrixSize - 1) {
@@ -504,7 +496,7 @@ void fall() {
 
 // decrease health when colliding with obstacle
 void damage() {
-  if(matrix[xPos][yPos] == 1) {
+  if(matrix[xPos][yPos] == 1 || matrix[xPos-1][yPos+1] == 1 || matrix[xPos][yPos+2] == 1) {
     currentGame.health --;
     currentGame.alive = 0;
     currentGame.deathTime = millis();
