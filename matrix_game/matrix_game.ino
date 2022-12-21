@@ -79,7 +79,7 @@ const byte menuOptionsCount = 5;
 const int scrollDelay = 500;
 unsigned long lastScroll = 0;
 
-const byte menuLengths[menuOptionsCount] = {5, 7, 7, 5, 3};
+const byte menuLengths[menuOptionsCount] = {5, 7, 7, 5, 7};
 String menuItems[maxItemCount];
 
 // auxiliary variables for scrolling
@@ -198,6 +198,12 @@ void loop() {
   } else {
     play();
   }
+}
+
+// 0 - off / 1 - on
+void showCar(byte flag) {
+  matrix[xPos][yPos] = flag;
+  lc.setLed(0, xPos, yPos, flag);
 }
 
 void displayMenu() {
@@ -359,7 +365,6 @@ void updatePositions() {
 }
 
 // spawn obstacles depending on level
-// to do : maybe improve obstacles (and add infinite mode)
 void obstacles(int level) {
   bool valid = true;
   const int space = 4;
@@ -530,11 +535,9 @@ void blinkCar() {
     previousMillis = millis();
 
     if (!matrix[xPos][yPos]) {
-      matrix[xPos][yPos] = 1;
-      lc.setLed(0, xPos, yPos, 1);
+      showCar(1);
     } else {
-      matrix[xPos][yPos] = 0;
-      lc.setLed(0, xPos, yPos, 0);
+      showCar(0);
     }
   }
 }
@@ -563,7 +566,7 @@ void died() {
   clearMatrix();
 
   buzz(currentSettings.audioState, 4);
-  lcd.setCursor(3, 0);
+  lcd.setCursor(2, 0);
   lcd.print("- YOU DIED -");
   lcd.setCursor(2, 1);
   lcd.print("!! " + String(currentPlayer.name) + " !!");
@@ -827,7 +830,7 @@ void loadMenuItems() {
       break;
     case 3:
     // About
-      menuItems[0] = "^^ Game Name ^^";
+      menuItems[0] = "Midnight Run";
       menuItems[1] = "By: Octavian Mitrica";
       menuItems[2] = "@UniBuc Robotics";
       menuItems[3] = "GitHub: bit.ly/3iMw7p5";
@@ -835,9 +838,13 @@ void loadMenuItems() {
       break;
     case 4:
     // How to play
-      menuItems[0] = "Move joystick";
-      menuItems[1] = "Eat the food";
-      menuItems[2] = "< Back";
+      menuItems[0] = "Move left/right";
+      menuItems[1] = "With joystick";
+      menuItems[2] = "Avoid obstacles";
+      menuItems[3] = "Level Up";
+      menuItems[4] = "Lv.5 is last";
+      menuItems[5] = "Goodluck ;)";
+      menuItems[6] = "< Back";
       break;
   }
 }
