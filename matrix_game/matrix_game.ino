@@ -204,6 +204,15 @@ void loop() {
 void showCar(byte flag) {
   matrix[xPos][yPos] = flag;
   lc.setLed(0, xPos, yPos, flag);
+
+  if (currentSettings.difficulty == 3) {
+    matrix[xPos][yPos+1] = flag;
+    lc.setLed(0, xPos, yPos+1, flag);
+    matrix[xPos+1][yPos] = flag;
+    lc.setLed(0, xPos+1, yPos, flag);
+    matrix[xPos+1][yPos+1] = flag;
+    lc.setLed(0, xPos+1, yPos+1, flag);
+  }
 }
 
 void displayMenu() {
@@ -325,11 +334,8 @@ void carMovement() {
     updatePositions();
     lastMoved = millis();
   }
-  // if a move has been detected, update matrix
-  if (matrixChanged == true) {
-    updateMatrix();
-    matrixChanged = false;
-  }
+  
+  showCar(1);
 }
 
 // update when car is moved
@@ -341,6 +347,7 @@ void updatePositions() {
   
   if(right == 1) {
     if(yPos < matrixSize - 1) {
+      showCar(0);
       yPos++;
     }
     else {
@@ -350,17 +357,12 @@ void updatePositions() {
   
   if(right == -1) {
     if(yPos > 0) {
+      showCar(0);
       yPos--;
     }
     else {
       yPos = matrixSize - 1;
     }
-  }
-  
-  if(yPos != yLastPos) {
-    matrixChanged = true;
-    matrix[xLastPos][yLastPos] = 0;
-    matrix[xPos][yPos] = 1;
   }
 }
 
